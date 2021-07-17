@@ -1,0 +1,291 @@
+---
+title: "Analisis Exploratorio"
+author: "Ricardo Zamora Mennigke"
+date: "1/12/2021"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(devtools)
+
+#find_rtools()
+# NOT RUN {
+#install.Rtools() # installs the latest version of RTools (if one is needed)
+#install.Rtools(TRUE) # if one is needed - asks the user to choose the latest 
+# version of RTools to install
+
+#install.Rtools(TRUE, FALSE) # asks the user to choose 
+# the latest version of RTools to install 
+# (regardless if one is needed)
+# install.Rtools(F,F)
+
+# }
+
+library("gpclib")
+library("raster")
+library("maptools")
+library("broom")
+library(mapproj)
+gpclibPermit()
+
+library(tidyr)
+library(plyr)
+library(dplyr)
+library(readxl)
+library(ggplot2)
+library(ggthemes)
+
+```
+
+```{r}
+setwd("~/Machine Learning/Tesis/Base de datos")
+cr <- readRDS("gadm36_CRI_2_sp (2).rds")
+cr2<- fortify(cr, region = "HASC_2")
+cantones <- read.csv("01_08_CSV_POSITIVOS.csv", header = TRUE) 
+head(cantones)
+```
+
+```{r}
+table(cr2$id)
+```
+
+
+```{r}
+#Unir bases
+cr_mapa <- merge(cr2, cantones, by.x= "id", by.y="HASC", all.x = TRUE)
+#ordenar pol?gonos
+ord2<- order(cr_mapa$order)
+cr_mapa <- cr_mapa[ord2, ]
+```
+
+
+```{r}
+ggplot() +
+  geom_polygon(data = cr_mapa, aes(x = long, y = lat, group = group, fill = Total)) +
+  coord_map() + ylim(8, NA) + 
+  scale_fill_gradient(low = "grey", high = "red", limits = c(0, 25000)) +
+  labs(x = NULL, 
+       y = NULL, 
+       title = "Personas positivos de Covid-19", 
+       subtitle = "Acumulado por cantones en Costa Rica al 8 de enero de 2020") +
+  theme_void()
+```
+```{r}
+map_theme <- theme(
+  axis.title.x = element_blank(),
+  axis.text.x  = element_blank(),
+  axis.ticks.x = element_blank(),
+  axis.title.y = element_blank(),
+  axis.text.y  = element_blank(),
+  axis.ticks.y = element_blank(),
+  panel.background = element_rect(fill = "white")
+)
+
+
+ggplot(data = cr_mapa, mapping = aes(x = long, y = lat, group = group)) +
+  coord_map() + ylim(8, NA) + 
+  geom_polygon(aes(fill = Total)) + 
+  geom_polygon(data = cr2, fill = NA, color = "black") +
+  scale_fill_gradient2(low = "white", high = "green", limits = c(0, 25000)) +
+  coord_quickmap() + 
+  labs(x = NULL, 
+       y = NULL, 
+       title = "Personas positivas de Covid-19", 
+       subtitle = "Acumulado por cantones en Costa Rica al 8 de enero de 2020") +
+  map_theme
+
+```
+```{r}
+setwd("~/Machine Learning/Tesis/Base de datos")
+cantones2 <- read.csv("01_08_CSV_FALLECIDOS.csv", header = TRUE) 
+head(cantones2)
+
+
+#Unir bases
+cr_mapa <- merge(cr2, cantones2, by.x= "id", by.y="HASC", all.x = TRUE)
+#ordenar pol?gonos
+ord2<- order(cr_mapa$order)
+cr_mapa <- cr_mapa[ord2, ]
+
+```
+
+```{r}
+map_theme <- theme(
+  axis.title.x = element_blank(),
+  axis.text.x  = element_blank(),
+  axis.ticks.x = element_blank(),
+  axis.title.y = element_blank(),
+  axis.text.y  = element_blank(),
+  axis.ticks.y = element_blank(),
+  panel.background = element_rect(fill = "white")
+)
+
+
+ggplot(data = cr_mapa, mapping = aes(x = long, y = lat, group = group)) +
+  coord_map() + ylim(8, NA) + 
+  geom_polygon(aes(fill = Total)) + 
+  geom_polygon(data = cr2, fill = NA, color = "black") +
+  scale_fill_gradient2(low = "white", high = "red", limits = c(0, 350)) +
+  coord_quickmap() + 
+  labs(x = NULL, 
+       y = NULL, 
+       title = "Personas fallecidas de Covid-19", 
+       subtitle = "Acumulado por cantones en Costa Rica al 8 de enero de 2020") +
+  map_theme
+```
+
+```{r}
+setwd("~/Machine Learning/Tesis/Base de datos")
+cantones3 <- read.csv("01_08_CSV_RECUP.csv", header = TRUE) 
+head(cantones3)
+
+
+#Unir bases
+cr_mapa <- merge(cr2, cantones3, by.x= "id", by.y="HASC", all.x = TRUE)
+#ordenar pol?gonos
+ord2<- order(cr_mapa$order)
+cr_mapa <- cr_mapa[ord2, ]
+```
+
+```{r}
+map_theme <- theme(
+  axis.title.x = element_blank(),
+  axis.text.x  = element_blank(),
+  axis.ticks.x = element_blank(),
+  axis.title.y = element_blank(),
+  axis.text.y  = element_blank(),
+  axis.ticks.y = element_blank(),
+  panel.background = element_rect(fill = "white")
+)
+
+
+ggplot(data = cr_mapa, mapping = aes(x = long, y = lat, group = group)) +
+  coord_map() + ylim(8, NA) + 
+  geom_polygon(aes(fill = Total)) + 
+  geom_polygon(data = cr2, fill = NA, color = "black") +
+  scale_fill_gradient2(low = "white", high = "blue", limits = c(0, 20000)) +
+  coord_quickmap() + 
+  labs(x = NULL, 
+       y = NULL, 
+       title = "Personas recuperadas de Covid-19", 
+       subtitle = "Acumulado por cantones en Costa Rica al 8 de enero de 2020") +
+  map_theme
+
+```
+
+```{r}
+setwd("~/Machine Learning/Tesis/Base de datos")
+cantones4 <- read.csv("01_08_CSV_ACTIVOS.csv", header = TRUE) 
+head(cantones4)
+
+
+#Unir bases
+cr_mapa <- merge(cr2, cantones4, by.x= "id", by.y="HASC", all.x = TRUE)
+#ordenar pol?gonos
+ord2<- order(cr_mapa$order)
+cr_mapa <- cr_mapa[ord2, ]
+```
+
+```{r}
+map_theme <- theme(
+  axis.title.x = element_blank(),
+  axis.text.x  = element_blank(),
+  axis.ticks.x = element_blank(),
+  axis.title.y = element_blank(),
+  axis.text.y  = element_blank(),
+  axis.ticks.y = element_blank(),
+  panel.background = element_rect(fill = "white")
+)
+
+
+ggplot(data = cr_mapa, mapping = aes(x = long, y = lat, group = group)) +
+  coord_map() + ylim(8, NA) + 
+  geom_polygon(aes(fill = Total)) + 
+  geom_polygon(data = cr2, fill = NA, color = "black") +
+  scale_fill_gradient2(low = "white", high = "brown", limits = c(0, 4000)) +
+  coord_quickmap() + 
+  labs(x = NULL, 
+       y = NULL, 
+       title = "Casos activos de Covid-19", 
+       subtitle = "Acumulado por cantones en Costa Rica al 8 de enero de 2020") +
+  map_theme
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

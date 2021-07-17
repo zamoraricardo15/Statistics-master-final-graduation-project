@@ -1,0 +1,937 @@
+---
+title: "Analisis Exploratorio"
+author: "Ricardo Zamora Mennigke"
+date: "3/12/2021"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(devtools)
+
+#find_rtools()
+# NOT RUN {
+#install.Rtools() # installs the latest version of RTools (if one is needed)
+#install.Rtools(TRUE) # if one is needed - asks the user to choose the latest 
+# version of RTools to install
+
+#install.Rtools(TRUE, FALSE) # asks the user to choose 
+# the latest version of RTools to install 
+# (regardless if one is needed)
+# install.Rtools(F,F)
+
+# }
+
+library("gpclib")
+library("raster")
+library("maptools")
+library("broom")
+library(mapproj)
+gpclibPermit()
+
+library(tidyr)
+library(plyr)
+library(dplyr)
+library(readxl)
+library(ggplot2)
+library(ggthemes)
+
+```
+
+```{r}
+setwd("~/Machine Learning/Tesis/Base de datos")
+cr <- readRDS("gadm36_CRI_2_sp (2).rds")
+cr2<- fortify(cr, region = "HASC_2")
+cantones <- read.csv("01_08_CSV_POSITIVOS.csv", header = TRUE) 
+head(cantones)
+```
+
+```{r}
+table(cr2$id)
+```
+
+
+```{r}
+#Unir bases
+cr_mapa <- merge(cr2, cantones, by.x= "id", by.y="HASC", all.x = TRUE)
+#ordenar pol?gonos
+ord2<- order(cr_mapa$order)
+cr_mapa <- cr_mapa[ord2, ]
+```
+
+
+```{r}
+ggplot() +
+  geom_polygon(data = cr_mapa, aes(x = long, y = lat, group = group, fill = Total)) +
+  coord_map() + ylim(8, NA) + 
+  scale_fill_gradient(low = "grey", high = "red", limits = c(0, 25000)) +
+  labs(x = NULL, 
+       y = NULL, 
+       title = "Personas positivos de Covid-19", 
+       subtitle = "Acumulado por cantones en Costa Rica al 8 de enero de 2020") +
+  theme_void()
+```
+```{r}
+map_theme <- theme(
+  axis.title.x = element_blank(),
+  axis.text.x  = element_blank(),
+  axis.ticks.x = element_blank(),
+  axis.title.y = element_blank(),
+  axis.text.y  = element_blank(),
+  axis.ticks.y = element_blank(),
+  panel.background = element_rect(fill = "white")
+)
+
+
+ggplot(data = cr_mapa, mapping = aes(x = long, y = lat, group = group)) +
+  coord_map() + ylim(8, NA) + 
+  geom_polygon(aes(fill = Total)) + 
+  geom_polygon(data = cr2, fill = NA, color = "black") +
+  scale_fill_gradient2(low = "white", high = "green", limits = c(0, 25000)) +
+  coord_quickmap() + 
+  labs(x = NULL, 
+       y = NULL, 
+       title = "Personas positivas de Covid-19", 
+       subtitle = "Acumulado por cantones en Costa Rica al 8 de enero de 2020") +
+  map_theme
+
+```
+```{r}
+cantones2 <- read.csv("01_08_CSV_FALLECIDOS.csv", header = TRUE) 
+head(cantones2)
+
+
+#Unir bases
+cr_mapa <- merge(cr2, cantones2, by.x= "id", by.y="HASC", all.x = TRUE)
+#ordenar pol?gonos
+ord2<- order(cr_mapa$order)
+cr_mapa <- cr_mapa[ord2, ]
+
+```
+
+```{r}
+map_theme <- theme(
+  axis.title.x = element_blank(),
+  axis.text.x  = element_blank(),
+  axis.ticks.x = element_blank(),
+  axis.title.y = element_blank(),
+  axis.text.y  = element_blank(),
+  axis.ticks.y = element_blank(),
+  panel.background = element_rect(fill = "white")
+)
+
+
+ggplot(data = cr_mapa, mapping = aes(x = long, y = lat, group = group)) +
+  coord_map() + ylim(8, NA) + 
+  geom_polygon(aes(fill = Total)) + 
+  geom_polygon(data = cr2, fill = NA, color = "black") +
+  scale_fill_gradient2(low = "white", high = "red", limits = c(0, 350)) +
+  coord_quickmap() + 
+  labs(x = NULL, 
+       y = NULL, 
+       title = "Personas fallecidas de Covid-19", 
+       subtitle = "Acumulado por cantones en Costa Rica al 8 de enero de 2020") +
+  map_theme
+```
+
+```{r}
+cantones3 <- read.csv("01_08_CSV_RECUP.csv", header = TRUE) 
+head(cantones3)
+
+
+#Unir bases
+cr_mapa <- merge(cr2, cantones3, by.x= "id", by.y="HASC", all.x = TRUE)
+#ordenar pol?gonos
+ord2<- order(cr_mapa$order)
+cr_mapa <- cr_mapa[ord2, ]
+```
+
+```{r}
+map_theme <- theme(
+  axis.title.x = element_blank(),
+  axis.text.x  = element_blank(),
+  axis.ticks.x = element_blank(),
+  axis.title.y = element_blank(),
+  axis.text.y  = element_blank(),
+  axis.ticks.y = element_blank(),
+  panel.background = element_rect(fill = "white")
+)
+
+
+ggplot(data = cr_mapa, mapping = aes(x = long, y = lat, group = group)) +
+  coord_map() + ylim(8, NA) + 
+  geom_polygon(aes(fill = Total)) + 
+  geom_polygon(data = cr2, fill = NA, color = "black") +
+  scale_fill_gradient2(low = "white", high = "blue", limits = c(0, 20000)) +
+  coord_quickmap() + 
+  labs(x = NULL, 
+       y = NULL, 
+       title = "Personas recuperadas de Covid-19", 
+       subtitle = "Acumulado por cantones en Costa Rica al 8 de enero de 2020") +
+  map_theme
+
+```
+
+```{r}
+cantones4 <- read.csv("01_08_CSV_ACTIVOS.csv", header = TRUE) 
+head(cantones4)
+
+
+#Unir bases
+cr_mapa <- merge(cr2, cantones4, by.x= "id", by.y="HASC", all.x = TRUE)
+#ordenar pol?gonos
+ord2<- order(cr_mapa$order)
+cr_mapa <- cr_mapa[ord2, ]
+```
+
+```{r}
+map_theme <- theme(
+  axis.title.x = element_blank(),
+  axis.text.x  = element_blank(),
+  axis.ticks.x = element_blank(),
+  axis.title.y = element_blank(),
+  axis.text.y  = element_blank(),
+  axis.ticks.y = element_blank(),
+  panel.background = element_rect(fill = "white")
+)
+
+
+ggplot(data = cr_mapa, mapping = aes(x = long, y = lat, group = group)) +
+  coord_map() + ylim(8, NA) + 
+  geom_polygon(aes(fill = Total)) + 
+  geom_polygon(data = cr2, fill = NA, color = "black") +
+  scale_fill_gradient2(low = "white", high = "brown", limits = c(0, 4000)) +
+  coord_quickmap() + 
+  labs(x = NULL, 
+       y = NULL, 
+       title = "Casos activos de Covid-19", 
+       subtitle = "Acumulado por cantones en Costa Rica al 8 de enero de 2020") +
+  map_theme
+```
+
+#Problema son 82 cantones
+
+```{r}
+library(sf)
+library(xlsx)
+library(scales)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+```
+
+```{r}
+to_upper <- function(x) toupper(chartr("áéíóúÁÉÍÓÚ", "aeiouAEIOU", x))
+
+
+mapa_cantones <- read_sf("datosgeo/geo_data/cantones/cantones.shp")
+head(mapa_cantones)
+data1 <- read.csv("datos1.csv")
+head(data1)
+```
+
+
+
+```{r}
+#data1$Canton <- to_upper(data1$canton )
+
+mapa_cantones3 <- left_join(x = mapa_cantones,
+                           y = data1,
+                           by = c("cant_nom2"="canton"))
+
+
+
+ggplot(data = mapa_cantones3, aes(fill = falle.total.marzo)) +
+  geom_sf(color = "black", size = .1) +
+  theme_void() +
+    scale_fill_viridis_c(labels = comma,
+                         trans = "log10",
+                       name = "Fallecidos",
+                       direction = 1)+
+  labs(title = "Fallecidos por COVID-19 en Costa Rica por canton hasta marzo 2021",
+       caption = "Fuente: UNED - Ministerio de Salud") +
+  theme(legend.position = "bottom",legend.key.width = unit(1,"cm"),
+        plot.title = element_text(hjust = .5, size = 14))
+```
+
+```{r}
+library(ggplot2)
+
+plot_mapa <- ggplot(data = mapa_cantones3) +
+  geom_sf(mapping = aes(fill = falle.total.marzo),
+          color = "#252525") +
+  scale_fill_viridis_c(
+    guide = guide_colorbar(
+    title.position = "top",
+    title.theme = element_text(size = 12)
+  )) +
+    theme_void() +
+  theme(legend.position = "bottom",
+        legend.key.width  = unit(2.5,"cm"))
+plot_mapa
+```
+
+```{r}
+GAM <- c("San José", "Escazú", "Desamparados", "Aserrí",
+         "Mora", "Goicoechea", "Santa Ana", "Alajuelita",
+         "Vázquez de Coronado", "Tibás", "Moravia","Montes de Oca" ,
+         "Curridabat","Heredia", "Barva", "Santo Domingo",
+         "Santa Bárbara", "San Rafael", "San Isidro", "Belén",
+         "Flores", "San Pablo","Cartago", "Paraíso", "La Unión",
+         "Alvarado", "Oreamuno" , "El Guarco","Alajuela","Atenas",
+         "Poás")
+mapa_GAM <- subset(mapa_cantones3, cant_nom2 %in% GAM)
+```
+
+```{r}
+library(ggplot2)
+
+plot_mapa_gam <- ggplot(data = mapa_GAM) +
+  geom_sf(mapping = aes(fill = falle.total.marzo),
+          color = "#252525") +
+  scale_fill_viridis_c() +
+  theme_void() +
+  theme(legend.position = "none",
+        panel.border = element_rect(color = "black", fill = NA))
+plot_mapa_gam
+
+```
+
+```{r}
+g1 <- plot_mapa +
+  annotation_custom(
+    grob = ggplotGrob(plot_mapa_gam),
+    ymax = 1056114 ,
+    xmax = 480943.3
+  ) +
+  annotate(geom = "rect",
+           xmin =448593.5,
+           xmax = 540943.3,
+           ymin = 1056114,
+           ymax = 1151499,
+           fill = NA,
+           color = "white")
+g1
+```
+```{r}
+library(forcats)
+mapa_GAM <- mapa_GAM[!is.na(mapa_GAM$falle.total.marzo),]
+g2 <- ggplot(data = mapa_GAM, 
+       mapping = aes(y = fct_reorder(cant_nom2,
+                                     falle.total.marzo),
+                     x = falle.total.marzo)) +
+  geom_point(size = 3) +
+  geom_segment(aes(x = 0,
+                   y = cant_nom2,
+                   xend = falle.total.marzo,
+                   yend = cant_nom2)) +
+ 
+  theme_minimal() +
+  labs(x = "Fallecidos GAM", y = "") +
+  theme(text = element_text(size = 14, face = "bold"))
+g2
+```
+
+```{r}
+library(egg)
+library(grid)
+gl <- list(g1, g2)
+grid.arrange(grobs = gl,
+             nrow = 1,
+             widths = c(2,2),
+             layout_matrix = rbind(c(1, 2),c(1, 2)),
+             top = textGrob("Fallecidos por COVID-19 cantones del GAM",
+                            gp = gpar(fontface = 2,
+                                      fontsize = 16),
+                            hjust = 0.5,
+                            x = 0.5)
+             )
+```
+
+
+
+```{r}
+library(ggplot2)
+
+plot_mapa <- ggplot(data = mapa_cantones3) +
+  geom_sf(mapping = aes(fill = falle.total.marzo),
+          color = "#252525") +
+  scale_fill_gradient2(low = "white", high = "red", limits = c(0, 500))+
+    theme_void() +
+  theme(legend.position = "bottom",
+        legend.key.width  = unit(2.5,"cm"))
+plot_mapa
+```
+```{r}
+#https://rspatial.org/raster/analysis/index.html
+#https://rspatial.org/terra/spatial/index.html
+#http://gis.humboldt.edu/OLM/r/Spatial%20Analysis%20With%20R.pdf
+#https://spacetimewithr.org/Spatio-Temporal%20Statistics%20with%20R.pdf
+#http://carlosreynoso.com.ar/archivos/territorio/Gelfand-Handbook-of-Spatial-Statistics.pdf
+```
+
+
+
+```{r}
+head(mapa_cantones3)
+```
+
+```{r}
+library(dplyr)
+```
+
+```{r}
+#### Boxplots for temporal trend
+library(ggplot2)
+ggplot(mapa_cantones3, aes(x = factor(provincia), y = falle.total.marzo)) +
+    geom_boxplot(fill="red", alpha=0.7) + 
+    scale_x_discrete() +
+    scale_y_continuous(name = "Fallecidos") + 
+    theme(text=element_text(size=16), plot.title=element_text(size=18, face="bold")) 
+
+```
+```{r}
+#### Scatterplot
+library(GGally)
+ggpairs(mapa_cantones3, c("falle.total.marzo", "posi.total.marzo"))
+```
+```{r}
+
+to_upper <- function(x) toupper(chartr("áéíóúÁÉÍÓÚ", "aeiouAEIOU", x))
+
+
+mapa_cantones <- read_sf("datosgeo/geo_data/cantones/cantones.shp")
+head(mapa_cantones)
+data1 <- read.csv("datos1.csv")
+head(data1)
+```
+
+
+```{r}
+mapa_cantones <- st_transform(mapa_cantones, crs = "+proj=longlat +ellps=WGS84 +no_defs")
+head(mapa_cantones)
+```
+
+
+
+```{r}
+#data1$Canton <- to_upper(data1$canton )
+
+mapa_cantones4 <- left_join(x = mapa_cantones,
+                           y = data1,
+                           by = c("cant_nom2"="canton"))
+
+```
+
+```{r}
+#### Read in the spatial object
+library(rgdal)
+head(mapa_cantones4)
+```
+
+
+```{r}
+
+
+library(leaflet)
+
+colours <- colorBin(palette = "YlOrRd", domain = mapa_cantones4$falle.total.marzo)
+leaflet(data=mapa_cantones4) %>% 
+    addTiles() %>% 
+    addPolygons(label = mapa_cantones4$cant_nom2,
+                fillColor = ~colours(mapa_cantones4$falle.total.marzo), 
+                color="black",
+                fillOpacity = 0.7, weight = 1, smoothFactor = 0.5,
+                opacity = 1.0) %>%
+    addLegend(pal = colours, values = mapa_cantones4$falle.total.marzo, 
+              opacity = 1, title="Fallecidos") %>%
+    addScaleBar(position="bottomleft")
+```
+
+#Spatio temporal patterns
+```{r}
+library(rgdal)
+library(sf)
+library(spdep) 
+library(tmap)
+library(tidyverse)
+library(magick)
+library(plotly)
+library(tmaptools)
+library(gridExtra)
+```
+
+#checking map
+```{r}
+qtm(mapa_cantones)
+```
+
+
+
+
+```{r}
+#### Construct the spatial objects
+mapa_cantones4[rowSums(is.na(mapa_cantones4))!=0,]
+
+```
+```{r}
+test <- st_is_valid(mapa_cantones4,reason=TRUE)
+length(which(test!= "Valid Geometry"))
+```
+
+#map showing the distribution
+```{r}
+qtm(mapa_cantones4, "falle.total.marzo")
+```
+#Queen contiguity weight matrix
+```{r}
+wm_q <- poly2nb(mapa_cantones4, queen=TRUE)
+summary(wm_q)
+```
+
+#complete weight matrix
+
+```{r}
+str(wm_q)
+
+```
+
+```{r}
+st_coordinates(st_centroid(mapa_cantones$geometry))
+```
+
+
+#(ROOK) contiguity based neighbours
+```{r}
+wm_r <- poly2nb(mapa_cantones4, queen=FALSE)
+summary(wm_r)
+```
+
+```{r}
+class(mapa_cantones)
+```
+
+```{r}
+# Convert to spatialpointdataframe
+spdf_central_cr<-as_Spatial(mapa_cantones)
+# compute Rook contiguity weight matrix
+wm_r <- poly2nb(spdf_central_cr, queen=FALSE)
+# compute Queen contiguity weight matrix
+wm_q <- poly2nb(spdf_central_cr, queen=TRUE)
+
+# save coordinates to variable
+coords <- coordinates(spdf_central_cr)
+head(coords)
+```
+
+
+#Plotting Queen contiguity based neighbours maps
+```{r}
+plot(mapa_cantones4, border="lightgrey")
+#plot(wm_q, coords, pch = 19, cex = 0.6, add = TRUE, col= "red")
+plot(wm_q, coordinates(as(mapa_cantones, "Spatial")), pch = 19, cex = 0.6, add = TRUE, col= "red")
+
+```
+
+```{r}
+plot(mapa_cantones4, border="lightgrey")
+plot(wm_r, coords, pch = 19, cex = 0.6, add = TRUE, col = "red")
+```
+
+```{r}
+par(mfrow=c(1,2))
+plot(mapa_cantones4, border="lightgrey")
+plot(wm_q, coords, pch = 19, cex = 0.6, add = TRUE, col= "red", main="Queen Contiguity")
+plot(mapa_cantones4, border="lightgrey")
+plot(wm_r, coords, pch = 19, cex = 0.6, add = TRUE, col = "red", main="Rook Contiguity")
+```
+
+#distance band
+
+```{r}
+k1 <- knn2nb(knearneigh(coords))
+k1dists <- unlist(nbdists(k1, coords, longlat = TRUE))
+summary(k1dists)
+```
+#fixed distance weight matrix
+```{r}
+wm_d62 <- dnearneigh(coords, 0, 19577, longlat = TRUE)
+wm_d62
+```
+
+```{r}
+str(wm_d62)
+```
+#display the structure of the weight matrix
+```{r}
+table(mapa_cantones4$cant_nom1, card(wm_d62))
+
+```
+```{r}
+n_comp <- n.comp.nb(wm_d62)
+n_comp$nc
+```
+
+```{r}
+table(n_comp$comp.id)
+```
+
+#Plotting fixed distance weight matrix
+
+```{r}
+plot(mapa_cantones4, border="lightgrey")
+plot(wm_d62, coords, add=TRUE)
+plot(k1, coords, add=TRUE, col="red", length=0.08)
+```
+
+#adaptive distance weight matrix
+```{r}
+knn6 <- knn2nb(knearneigh(coords, k=6))
+knn6
+```
+```{r}
+str(knn6)
+
+```
+#Plotting distance based neighbours
+```{r}
+plot(mapa_cantones4, border="lightgrey")
+plot(knn6, coords, pch = 19, cex = 0.6, add = TRUE, col = "red")
+```
+
+#Weights based on IDW
+```{r}
+dist <- nbdists(wm_q, coords, longlat = TRUE)
+ids <- lapply(dist, function(x) 1/(x))
+ids
+```
+
+
+#Row-standardised weights matrix
+```{r}
+rswm_q <- nb2listw(wm_q, style="W", zero.policy = TRUE)
+rswm_q
+```
+
+```{r}
+rswm_q$weights[1]
+
+```
+
+```{r}
+rswm_ids <- nb2listw(wm_q, glist=ids, style="B", zero.policy=TRUE)
+rswm_ids
+```
+
+```{r}
+rswm_ids$weights[1]
+
+```
+
+```{r}
+summary(unlist(rswm_ids$weights))
+
+```
+#Application of Spatial Weight Matrix
+```{r}
+#Spatial lag with row-standardized weights
+#average neighbor fatality value for each polygon
+GDPPC.lag <- lag.listw(rswm_q, mapa_cantones4$falle.total.marzo)
+GDPPC.lag
+```
+
+#Measure of Global Spatial Autocorrelation
+#Moran’s I
+```{r}
+moran.test(mapa_cantones4$falle.total.marzo, listw=rswm_q, zero.policy = TRUE, na.action=na.omit)
+
+```
+
+#local Moran I
+```{r}
+fips <- order(mapa_cantones4$cant_nom1)
+localMI <- localmoran(mapa_cantones4$falle.total.marzo, rswm_q)
+head(localMI)
+```
+```{r}
+printCoefmat(data.frame(localMI[fips,], row.names=mapa_cantones4$cant_nom1[fips]), check.names=FALSE)
+
+```
+#Mapping the local Moran’s I
+```{r}
+hunan.localMI <- cbind(mapa_cantones,localMI)
+
+```
+
+```{r}
+tm_shape(hunan.localMI) +
+  tm_fill(col = "Ii", 
+          style = "pretty",
+          palette = "RdBu",
+          title = "local moran statistics") +
+  tm_borders(alpha = 0.5)
+```
+
+#Mapping local Moran’s I p-values
+```{r}
+tm_shape(hunan.localMI) +
+  tm_fill(col = "Pr.z...0.", 
+          breaks=c(-Inf, 0.001, 0.01, 0.05, 0.1, Inf),
+          palette="-Blues", 
+          title = "local Moran's I p-values") +
+  tm_borders(alpha = 0.5)
+```
+
+#joint maps
+```{r}
+localMI.map <- tm_shape(hunan.localMI) +
+  tm_fill(col = "Ii", 
+          style = "pretty", 
+          title = "local moran statistics") +
+  tm_borders(alpha = 0.5)
+
+pvalue.map <- tm_shape(hunan.localMI) +
+  tm_fill(col = "Pr.z...0.", 
+          breaks=c(-Inf, 0.001, 0.01, 0.05, 0.1, Inf),
+          palette="-Blues", 
+          title = "local Moran's I p-values") +
+  tm_borders(alpha = 0.5)
+
+tmap_arrange(localMI.map, pvalue.map, asp=1, ncol=2)
+```
+
+
+
+
+#Monte Carlo Moran’s I
+```{r}
+set.seed(1234)
+bperm= moran.mc(mapa_cantones4$falle.total.marzo, listw=rswm_q, nsim=999, zero.policy = TRUE, na.action=na.omit)
+bperm
+```
+
+#Visualising Monte Carlo Moran’s I
+```{r}
+mean(bperm$res[1:999])
+
+```
+
+```{r}
+var(bperm$res[1:999])
+
+```
+
+```{r}
+summary(bperm$res[1:999])
+
+```
+
+```{r}
+hist(bperm$res, freq=TRUE, breaks=20, xlab="Moran I simulado")
+abline(v=0, col="red") 
+```
+
+#Geary
+#Geary C
+```{r}
+geary.test(mapa_cantones4$falle.total.marzo, listw=rswm_q)
+
+```
+
+#Monte Carlo similation approach of Geary’s C
+```{r}
+set.seed(1234)
+bperm=geary.mc(mapa_cantones4$falle.total.marzo, listw=rswm_q, nsim=999)
+bperm
+```
+
+#Visualising the Monte Carlo Geary’s C
+```{r}
+mean(bperm$res[1:999])
+
+```
+
+```{r}
+var(bperm$res[1:999])
+
+```
+
+```{r}
+summary(bperm$res[1:999])
+
+```
+
+```{r}
+hist(bperm$res, freq=TRUE, breaks=20, xlab="Geary C simulado")
+abline(v=1, col="red") 
+```
+
+#Moran’s I correlogram and plot
+```{r}
+MI_corr <- sp.correlogram(wm_q, mapa_cantones4$posi.total.marzo, order=6, method="I", style="B")
+plot(MI_corr)
+```
+
+#Geary’s C correlogram and plot
+```{r}
+GC_corr <- sp.correlogram(wm_q, mapa_cantones4$posi.total.marzo, order=6, method="C", style="W")
+plot(GC_corr)
+```
+
+```{r}
+scatterMC_wk13 <- moran.plot(mapa_cantones4$falle.total.marzo, 
+                             rswm_ids,
+                             labels=as.character(mapa_cantones4$cant_nom1),
+                             xlab="COVID-19 ratio segun fallecidos por canton en Costa Rica hasta marzo 2021", 
+                             ylab="Indice espacial por canton")
+```
+
+
+#INLA
+
+```{r}
+library(maptools)
+library(spdep)
+library(RColorBrewer)
+library(lattice)
+library(INLA)
+library(dplyr)
+library(plyr)
+library(sqldf)
+library(rgdal)
+
+```
+#OLS model using the bayesian framework
+
+```{r}
+model_list=list().
+model_list[[1]]=as.formula(falle.total.marzo~posi.total.marzo+porcentajeadltmayor+IDH2018+porcentajeurbano)
+model_list[[2]]=as.formula(falle.total.marzo~offset(logExpected)+porcentajeadltmayor+IDH2018+porcentajeurbano)
+model_list[[3]]=as.formula(falle.total.marzo~offset(logExpected)+posi.total.marzo+porcentajeadltmayor+IDH2018+porcentajeurbano)
+model_list[[4]]=as.formula(falle.total.marzo~offset(logExpected)+posi.total.marzo+porcentajeadltmayor+IDH2018+porcentajeurbano+
+                             f(region, model="bym",graph=regions.W) + 
+                             f(date_num_str, model="rw2") +
+                             f(date_num_unstr, model="iid"))
+model_list[[5]]=as.formula(falle.total.marzo~offset(logExpected)+posi.total.marzo+porcentajeadltmayor+IDH2018+porcentajeurbano+
+                             f(region, model="bym",graph=regions.W) + 
+                             f(week_num_str, model="rw2") +
+                             f(week_num_unstr, model="iid") +
+                             f(region_week_num, model="iid"))
+model_list[[6]]=as.formula(falle.total.marzo~offset(logExpected)+posi.total.marzo+porcentajeadltmayor+IDH2018+porcentajeurbano+
+                             f(region, model="bym",graph=regions.W) + 
+                             f(week_num_str, model="rw2") +
+                             f(week_num_unstr, model="iid") +
+                             f(region_int, model="iid", group=week_num_str_int,
+                               control.group=list(model="rw2")))
+model_list[[7]]=as.formula(falle.total.marzo~offset(logExpected)+posi.total.marzo+porcentajeadltmayor+IDH2018+porcentajeurbano+
+                             f(region, model="bym",graph=regions.W) + 
+                             f(week_num_str, model="rw2") +
+                             f(week_num_unstr, model="iid") +
+                             f(week_num_unstr_int, model="iid", group=region_int,
+                               control.group=list(model="besag", graph=regions.W)))
+model_list[[8]]=as.formula(falle.total.marzo~offset(logExpected)+posi.total.marzo+porcentajeadltmayor+IDH2018+porcentajeurbano+
+                             f(region, model="bym",graph=regions.W) + 
+                             f(week_num_str, model="rw2") +
+                             f(week_num_unstr, model="iid") +
+                             f(region_int, 
+                               model="besag", graph=regions.W, 
+                               group=week_num_str_int,
+                               control.group=list(model="rw2")))
+model_list[[9]]=as.formula(falle.total.marzo~offset(logExpected)+posi.total.marzo+porcentajeadltmayor+IDH2018+porcentajeurbano+
+                             f(region, model="bym",graph=regions.W) + 
+                             f(date_num_str, model="rw2") +
+                             f(date_num_unstr, model="iid") +
+                             f(region_date_num, model="iid"))
+model_list[[10]]=as.formula(falle.total.marzo~offset(logExpected)+posi.total.marzo+porcentajeadltmayor+IDH2018+porcentajeurbano+
+                             f(region, model="bym",graph=regions.W) + 
+                             f(date_num_str, model="rw2") +
+                             f(date_num_unstr, model="iid") +
+                             f(region_int, model="iid", group=date_num_str_int,
+                               control.group=list(model="rw2")))
+model_list[[11]]=as.formula(falle.total.marzo~offset(logExpected)+posi.total.marzo+porcentajeadltmayor+IDH2018+porcentajeurbano+
+                             f(region, model="bym",graph=regions.W) + 
+                             f(date_num_str, model="rw2") +
+                             f(date_num_unstr, model="iid") +
+                             f(date_num_unstr_int, model="iid", group=region_int,
+                               control.group=list(model="besag", graph=regions.W)))
+model_list[[12]]=as.formula(falle.total.marzo~offset(logExpected)+posi.total.marzo+porcentajeadltmayor+IDH2018+porcentajeurbano+
+                             f(region, model="bym",graph=regions.W) + 
+                             f(date_num_str, model="rw2") +
+                             f(date_num_unstr, model="iid") +
+                             f(region_int, 
+                               model="besag", graph=regions.W, 
+                               group=date_num_str_int,
+                               control.group=list(model="rw2")))
+
+```
+
+```{r}
+# Fit models
+
+for (i in 1:length(model_list)){
+  model_name=paste0("Model",i)
+  model_formula=model_list[[i]]
+  assign(model_name,inla(model_formula,
+                         family="poisson",
+                         control.compute = list(dic=T),
+                         quantiles=c(0.025, 0.05, 0.1, 0.5, 0.9, 0.95, 0.975),
+                         data=region_data))
+  save(list=model_name,file=paste0("Model",i,".rda"))
+}
+
+```
+
+
+
+#Gaussian
+```{r}
+fit.us<-inla(falle.total.marzo~posi.total.marzo+porcentajeadltmayor+IDH2018+porcentajeurbano, family = "gaussian", data=mapa_cantones4, control.compute = list(dic=T))
+summary(fit.us)
+```
+
+```{r}
+#inla.hpdmarginal(p = .95, fit.us$marginals.fixed$giniz)
+
+```
+
+```{r}
+#inla.hpdmarginal(p = .95, fit.us$marginals.fixed$ne_bad)
+
+```
+
+```{r}
+#inla.hpdmarginal(p = .95, fit.us$marginals.fixed$isowbz)
+
+```
+
+
+#poisson
+```{r}
+fit.us<-inla(falle.total.marzo~posi.total.marzo+porcentajeadltmayor+IDH2018+porcentajeurbano, family = "poisson", data=mapa_cantones4, control.compute = list(dic=T))
+summary(fit.us)
+
+```
+
+#negative binonmial
+
+```{r}
+fit.us<-inla(falle.total.marzo~posi.total.marzo+porcentajeadltmayor+IDH2018+porcentajeurbano, family = "nbinomial", data=mapa_cantones4, control.compute = list(dic=T))
+summary(fit.us)
+
+#fit.nb_us<-inla(infd03~metro+giniz+hispz+blackz+povz+ne_bad+isowbz, family = "nbinomial",E=e+.0001, data=usdat@data, control.compute = list(dic=T))
+#summary(fit.nb_us)
+```
+
+```{r}
+#fit.pre_u<-inla(falle.total.marzo~posi.total.marzo+porcentajeadltmayor+IDH2018+porcentajeurbano + f(struct, model = "iid"), family = "poisson", data=mapa_cantones4, control.compute = list(dic=T))
+#summary(fit.pre_u)
+```
+
+
+
