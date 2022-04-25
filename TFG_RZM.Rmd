@@ -1,0 +1,3194 @@
+---
+title: "TFG_RZM"
+author: "Ricardo Zamora Mennigke"
+date: "3/8/2022"
+output: 
+  html_document:
+    theme: flatly
+    highlight: tango
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  cache= TRUE,
+  eval=TRUE,
+  echo = TRUE, 
+  fig.align = 'center',
+  fig.retina = 2,
+  fig.width = 8,
+  out.width = '100%',
+  fig.asp = 0.63
+)
+```
+
+
+## Final Graduation Project {.tabset .tabset-fade}
+
+
+
+### Data pre-processing
+
+**`libraries` needed**
+
+```{r, eval=T, results='hide', message=FALSE, warning=FALSE}
+#install.packages("INLA",repos=c(getOption("repos"),INLA="https://inla.r-inla-download.org/R/stable"), dep=TRUE)
+#inla.upgrade() # for the stable version
+#inla.upgrade(testing=TRUE) # for the testing version
+#if (!requireNamespace("BiocManager", quietly = TRUE))
+  #install.packages("BiocManager")
+#BiocManager::install(c("graph", "Rgraphviz"), dep=TRUE)
+```
+
+```{r, eval=T, results='hide', message=FALSE, warning=FALSE}
+library(devtools)
+library("gpclib")
+library("raster")
+library("maptools")
+library("broom")
+library(mapproj)
+gpclibPermit()
+library(tidyr)
+library(plyr)
+library(dplyr)
+library(readxl)
+library(ggplot2)
+library(ggthemes)
+library(sf)
+library(scales)
+library(rgdal)
+library(spdep) 
+library(tmap)
+library(tidyverse)
+library(magick)
+library(plotly)
+library(tmaptools)
+library(gridExtra)
+library(RColorBrewer)
+library(lattice)
+library(INLA)
+library(sqldf)
+library(ggpubr)
+library(MLmetrics)
+```
+
+**Load Data**
+
+```{r, eval=T, results='hide', message=FALSE, warning=FALSE}
+library(ggplot2)
+fallecidos <- read.csv("fallecidos2.csv", header = TRUE) 
+head(fallecidos)
+
+p <- ggplot(fallecidos, aes(x= factor(Month, levels = c('Abr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar')), y=Fallecidos, group = 1)) +
+  geom_point() +
+  geom_line() + 
+  labs(x = "Months", y = "Covid Deaths")
+p
+```
+
+```{r, eval=T, results='hide', message=FALSE, warning=FALSE}
+to_upper <- function(x) toupper(chartr("áéíóúÁÉÍÓÚ", "aeiouAEIOU", x))
+
+mapa_cantones <- read_sf("datosgeo/geo_data/cantones/cantones.shp")
+head(mapa_cantones)
+data1 <- read.csv("datos1.csv")
+head(data1)
+```
+
+```{r, eval=T, results='hide', message=FALSE, warning=FALSE}
+to_upper <- function(x) toupper(chartr("áéíóúÁÉÍÓÚ", "aeiouAEIOU", x))
+data <- read.csv("datostfgmarzo.csv")
+head(data)
+```
+
+**Construct the spatial objects**
+
+```{r, eval=T, results='hide', message=FALSE, warning=FALSE}
+mapa_cantones <- sf::st_transform(mapa_cantones, crs = "+proj=longlat +ellps=WGS84 +no_defs")
+mapa_cantonestfg <- left_join(x = mapa_cantones,
+                           y = data,
+                           by = c("cant_nom2"="canton"))
+head(mapa_cantonestfg)
+
+mapa_cantones2 <- left_join(x = mapa_cantones,
+                           y = data1,
+                           by = c("cant_nom2"="canton"))
+head(mapa_cantones2)
+
+mapa_cantonestfg[rowSums(is.na(mapa_cantonestfg))!=0,]
+mapa_cantonestfg2<-mapa_cantonestfg
+```
+
+```{r, eval=T, results='hide', message=FALSE, warning=FALSE}
+test <- st_is_valid(mapa_cantonestfg,reason=TRUE)
+length(which(test!= "Valid Geometry"))
+st_crs(mapa_cantonestfg)
+```
+
+```{r, eval=T, results='hide', message=FALSE, warning=FALSE}
+nb <- poly2nb(mapa_cantonestfg$geometry)
+head(nb)
+nb2INLA("map.adj", nb)
+g<-inla.read.graph(filename = "map.adj")
+```
+
+
+### Main Covariate
+
+```{r echo=FALSE, out.width='100%', fig.show='hold'}
+knitr::include_graphics("Capture1.PNG")
+```
+
+**Poisson - Null**
+
+```{r eval=TRUE}
+formula0 <- (fallecidos~1+
+                             f(cod_canton, model="bym",graph=g) + 
+                             f(strdia, model="rw2") +
+                             f(unstrdia, model="iid"))
+res0 <- inla(formula0, family = "poisson", data = mapa_cantonestfg2, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE))
+summary(res0)
+sum(-log(res0$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, res0$summary.fitted.values$mean)
+#saveRDS(res0, "1modelpoisson.rds")
+```
+
+**Negative Binomial - Null**
+
+```{r eval=TRUE}
+#names(inla.models()$likelihood)
+formula0 <- (fallecidos~1+
+                             f(cod_canton, model="bym",graph=g) + 
+                             f(strdia, model="rw2") +
+                             f(unstrdia, model="iid"))
+res0 <- inla(formula0, family = "nbinomial", data = mapa_cantonestfg2, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE))
+summary(res0)
+sum(-log(res0$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, res0$summary.fitted.values$mean)
+#saveRDS(res0, "2modelnegativebinomial.rds")
+```
+
+**Poisson - SMR**
+
+```{r eval=TRUE}
+formula0 <- (fallecidos~SMR.anterior+
+                             f(cod_canton, model="bym",graph=g) + 
+                             f(strdia, model="rw2") +
+                             f(unstrdia, model="iid"))
+res0 <- inla(formula0, family = "poisson", data = mapa_cantonestfg2, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE))
+summary(res0)
+sum(-log(res0$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, res0$summary.fitted.values$mean)
+#saveRDS(res0, "1modelpoisson.rds")
+```
+
+**Negative Binomial - SMR**
+
+```{r eval=TRUE}
+#names(inla.models()$likelihood)
+formula0 <- (fallecidos~SMR.anterior+
+                             f(cod_canton, model="bym",graph=g) + 
+                             f(strdia, model="rw2") +
+                             f(unstrdia, model="iid"))
+res0 <- inla(formula0, family = "nbinomial", data = mapa_cantonestfg2, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE))
+summary(res0)
+sum(-log(res0$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, res0$summary.fitted.values$mean)
+#saveRDS(res0, "2modelnegativebinomial.rds")
+```
+
+**Poisson - SMR.anterior**
+
+```{r eval=TRUE, error=TRUE}
+formula0 <- (fallecidos~fallecidos.anterior +
+                             f(cod_canton, model="bym",graph=g) +
+                             f(strdia, model="rw2") +
+                             f(unstrdia, model="iid"))
+res0 <- inla(formula0, family = "poisson", data = mapa_cantonestfg2, E=SMR.anterior, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE))
+summary(res0)
+sum(-log(res0$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, res0$summary.fitted.values$mean)
+#saveRDS(res0, "1modelpoisson.rds")
+```
+
+**Negative Binomial - E=SMR.anterior**
+
+```{r eval=FALSE}
+formula0 <- (fallecidos~ fallecidos.anterior+
+                             f(cod_canton, model="bym",graph=g) +
+                             f(strdia, model="rw2") +
+                             f(unstrdia, model="iid"))
+res0 <- inla(formula0, family = "nbinomial", data = mapa_cantonestfg2, E=SMR.anterior, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE))
+summary(res0)
+sum(-log(res0$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, res0$summary.fitted.values$mean)
+#saveRDS(res0, "1modelpoisson.rds")
+```
+
+**Poisson - Fallecidos**
+
+```{r eval=TRUE}
+formula0 <- (fallecidos~fallecidos.anterior+
+                             f(cod_canton, model="bym",graph=g) + 
+                             f(strdia, model="rw2") +
+                             f(unstrdia, model="iid"))
+res0 <- inla(formula0, family = "poisson", data = mapa_cantonestfg2, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE))
+summary(res0)
+sum(-log(res0$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, res0$summary.fitted.values$mean)
+#saveRDS(res0, "1modelpoisson.rds")
+```
+
+**Negative Binomial - Fallecidos**
+
+```{r eval=TRUE}
+#names(inla.models()$likelihood)
+formula0 <- (fallecidos~fallecidos.anterior+
+                             f(cod_canton, model="bym",graph=g) + 
+                             f(strdia, model="rw2") +
+                             f(unstrdia, model="iid"))
+res0 <- inla(formula0, family = "nbinomial", data = mapa_cantonestfg2, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE))
+summary(res0)
+sum(-log(res0$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, res0$summary.fitted.values$mean)
+#saveRDS(res0, "2modelnegativebinomial.rds")
+```
+
+### Distribution
+
+```{r echo=FALSE, out.width='100%', fig.show='hold'}
+knitr::include_graphics("Capture2.PNG")
+```
+
+**Poisson**
+
+```{r eval=TRUE}
+formula0 <- (fallecidos~SMR.anterior+
+                             f(cod_canton, model="bym",graph=g) + 
+                             f(strdia, model="rw2") +
+                             f(unstrdia, model="iid"))
+res0 <- inla(formula0, family = "poisson", data = mapa_cantonestfg2, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE))
+summary(res0)
+sum(-log(res0$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, res0$summary.fitted.values$mean)
+#saveRDS(res0, "1modelpoisson.rds")
+```
+
+**Negative Binomial**
+
+```{r eval=TRUE}
+#names(inla.models()$likelihood)
+formula0 <- (fallecidos~SMR.anterior+
+                             f(cod_canton, model="bym",graph=g) + 
+                             f(strdia, model="rw2") +
+                             f(unstrdia, model="iid"))
+res0 <- inla(formula0, family = "nbinomial", data = mapa_cantonestfg2, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE))
+summary(res0)
+sum(-log(res0$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, res0$summary.fitted.values$mean)
+#saveRDS(res0, "2modelnegativebinomial.rds")
+```
+
+**Gaussian**
+
+```{r eval=TRUE}
+#names(inla.models()$likelihood)
+formula0 <- (fallecidos~SMR.anterior+
+                             f(cod_canton, model="bym",graph=g) + 
+                             f(strdia, model="rw2") +
+                             f(unstrdia, model="iid"))
+res0 <- inla(formula0, family = "gaussian", data = mapa_cantonestfg2, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE))
+summary(res0)
+sum(-log(res0$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, res0$summary.fitted.values$mean)
+#saveRDS(res0, "3modelgaussian.rds")
+```
+
+**Logistic**
+
+```{r eval=TRUE}
+#names(inla.models()$likelihood)
+formula0 <- (fallecidos~SMR.anterior+
+                             f(cod_canton, model="bym",graph=g) + 
+                             f(strdia, model="rw2") +
+                             f(unstrdia, model="iid"))
+res0 <- inla(formula0, family = "logistic", data = mapa_cantonestfg2, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE))
+summary(res0)
+sum(-log(res0$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, res0$summary.fitted.values$mean)
+#saveRDS(res0, "4modellogistic.rds")
+```
+
+**Zero inflated Poisson**
+
+```{r eval=TRUE}
+#names(inla.models()$likelihood)
+formula0 <- (fallecidos~SMR.anterior+
+                             f(cod_canton, model="bym",graph=g) + 
+                             f(strdia, model="rw2") +
+                             f(unstrdia, model="iid"))
+res0 <- inla(formula0, family = "zeroinflatedpoisson1", data = mapa_cantonestfg2, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE))
+summary(res0)
+sum(-log(res0$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, res0$summary.fitted.values$mean)
+#saveRDS(res0, "5modelzeroinflatedpoisson.rds")
+```
+
+**Zero Inflated Negative Binomial**
+
+```{r eval=TRUE}
+#names(inla.models()$likelihood)
+formula0 <- (fallecidos~SMR.anterior+
+                             f(cod_canton, model="bym",graph=g) + 
+                             f(strdia, model="rw2") +
+                             f(unstrdia, model="iid"))
+res0 <- inla(formula0, family = "zeroinflatednbinomial1", data = mapa_cantonestfg2, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE))
+summary(res0)
+sum(-log(res0$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, res0$summary.fitted.values$mean)
+#saveRDS(res0, "6modelzeroinflatednbinomial.rds")
+```
+
+### Additional Covariates
+
+**Correlation**
+
+```{r eval=TRUE}
+x <- data[, c("porcentajeadltmayor", "IDH2018", "porcentajeurbano", "EVI_month",	"MIR_month",	"NIR_month",	"NDVI_month",	"LASTDia_month",	"LSTNoche_month", "SMR.anterior", "positivos.mes.anterior", "positivos.2mes.anterior", "fallecidos.anterior")]
+
+cor(x, method = c("pearson", "kendall", "spearman"))
+
+res <- cor(x)
+round(res, 2)
+
+library(corrplot)
+corrplot(res, type = "upper", order = "hclust", 
+         tl.col = "black", tl.srt = 45)
+
+library("PerformanceAnalytics")
+
+chart.Correlation(x, histogram=TRUE, pch=19)
+
+col<- colorRampPalette(c("blue", "white", "red"))(20)
+heatmap(x = res, col = col, symm = TRUE)
+```
+
+**Fallecidos mes anterior**
+
+```{r eval=TRUE}
+
+formulafallecidos <- (fallecidos~SMR.anterior+fallecidos.anterior+
+                             f(cod_canton, model="bym",graph=g) + 
+                             f(strdia, model="rw2") +
+                             f(unstrdia, model="iid"))
+resfallecidos <- inla(formulafallecidos, family = "nbinomial", data = mapa_cantonestfg, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE),control.inla=list(strategy="laplace"))
+summary(resfallecidos)
+plot(resfallecidos$cpo$cpo)
+sum(-log(resfallecidos$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, resfallecidos$summary.fitted.values$mean)
+#saveRDS(resfallecidos, "8modelfallecidos.rds")
+```
+
+**Offset Fallecidos mes anterior**
+
+```{r eval=TRUE}
+
+formulafallecidos2 <- (fallecidos~SMR.anterior+offset(fallecidos.anterior)+
+                             f(cod_canton, model="bym",graph=g) + 
+                             f(strdia, model="rw2") +
+                             f(unstrdia, model="iid"))
+resfallecidos2 <- inla(formulafallecidos2, family = "nbinomial", data = mapa_cantonestfg, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE),control.inla=list(strategy="laplace"))
+summary(resfallecidos2)
+plot(resfallecidos2$cpo$cpo)
+sum(-log(resfallecidos2$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, resfallecidos2$summary.fitted.values$mean)
+#saveRDS(resfallecidos2, "8modelfallecidosoffset.rds")
+```
+
+**porcentajeadltmayor**
+
+```{r eval=TRUE}
+
+formulaporcentajeadltmayor <- (fallecidos~SMR.anterior+porcentajeadltmayor+
+                             f(cod_canton, model="bym",graph=g) + 
+                             f(strdia, model="rw2") +
+                             f(unstrdia, model="iid"))
+resporcentajeadltmayor <- inla(formulaporcentajeadltmayor, family = "nbinomial", data = mapa_cantonestfg, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE),control.inla=list(strategy="laplace"))
+summary(resporcentajeadltmayor)
+plot(resporcentajeadltmayor$cpo$cpo)
+sum(-log(resporcentajeadltmayor$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, resporcentajeadltmayor$summary.fitted.values$mean)
+#saveRDS(resporcentajeadltmayor, "9modelporcentajeadltmayor.rds")
+```
+
+**IDH2018**
+
+```{r eval=TRUE}
+
+formulaIDH2018 <- (fallecidos~SMR.anterior+IDH2018+
+                             f(cod_canton, model="bym",graph=g) + 
+                             f(strdia, model="rw2") +
+                             f(unstrdia, model="iid"))
+resIDH2018 <- inla(formulaIDH2018, family = "nbinomial", data = mapa_cantonestfg, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE),control.inla=list(strategy="laplace"))
+summary(resIDH2018)
+plot(resIDH2018$cpo$cpo)
+sum(-log(resIDH2018$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, resIDH2018$summary.fitted.values$mean)
+#saveRDS(resIDH2018, "10modelIDH2018.rds")
+```
+
+**porcentajeurbano**
+
+```{r eval=TRUE}
+
+formulaporcentajeurbano <- (fallecidos~SMR.anterior+porcentajeurbano+
+                             f(cod_canton, model="bym",graph=g) + 
+                             f(strdia, model="rw2") +
+                             f(unstrdia, model="iid"))
+resporcentajeurbano <- inla(formulaporcentajeurbano, family = "nbinomial", data = mapa_cantonestfg, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE),control.inla=list(strategy="laplace"))
+summary(resporcentajeurbano)
+plot(resporcentajeurbano$cpo$cpo)
+sum(-log(resporcentajeurbano$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, resporcentajeurbano$summary.fitted.values$mean)
+#saveRDS(resporcentajeurbano, "11modelporcentajeurbano.rds")
+```
+
+**EVI_month**
+
+```{r eval=TRUE}
+formulaEVI_month <- (fallecidos~SMR.anterior+EVI_month+
+                             f(cod_canton, model="bym",graph=g) + 
+                             f(strdia, model="rw2") +
+                             f(unstrdia, model="iid"))
+resEVI_month<- inla(formulaEVI_month, family = "nbinomial", data = mapa_cantonestfg, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE),control.inla=list(strategy="laplace"))
+summary(resEVI_month)
+plot(resEVI_month$cpo$cpo)
+sum(-log(resEVI_month$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, resEVI_month$summary.fitted.values$mean)
+#saveRDS(resEVI_month, "12modelEVI_month.rds")
+```
+
+**MIR_month**
+
+```{r eval=TRUE}
+
+formulaMIR_month <- (fallecidos~SMR.anterior+MIR_month+
+                             f(cod_canton, model="bym",graph=g) + 
+                             f(strdia, model="rw2") +
+                             f(unstrdia, model="iid"))
+resMIR_month<- inla(formulaMIR_month, family = "nbinomial", data = mapa_cantonestfg, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE),control.inla=list(strategy="laplace"))
+summary(resMIR_month)
+plot(resMIR_month$cpo$cpo)
+sum(-log(resMIR_month$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, resMIR_month$summary.fitted.values$mean)
+#saveRDS(resMIR_month, "13modelMIR_month.rds")
+```
+
+**NIR_month**
+
+```{r eval=TRUE}
+formulaNIR_month <- (fallecidos~SMR.anterior+NIR_month+
+                             f(cod_canton, model="bym",graph=g) + 
+                             f(strdia, model="rw2") +
+                             f(unstrdia, model="iid"))
+resNIR_month<- inla(formulaNIR_month, family = "nbinomial", data = mapa_cantonestfg, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE),control.inla=list(strategy="laplace"))
+summary(resNIR_month)
+plot(resNIR_month$cpo$cpo)
+sum(-log(resNIR_month$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, resNIR_month$summary.fitted.values$mean)
+#saveRDS(resNIR_month, "14modelNIR_month.rds")
+```
+
+**NDVI_month**
+
+```{r eval=TRUE}
+formulaNDVI_month <- (fallecidos~SMR.anterior+NDVI_month+
+                             f(cod_canton, model="bym",graph=g) + 
+                             f(strdia, model="rw2") +
+                             f(unstrdia, model="iid"))
+resNDVI_month<- inla(formulaNDVI_month, family = "nbinomial", data = mapa_cantonestfg, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE),control.inla=list(strategy="laplace"))
+summary(resNDVI_month)
+plot(resNDVI_month$cpo$cpo)
+sum(-log(resNDVI_month$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, resNDVI_month$summary.fitted.values$mean)
+#saveRDS(resNDVI_month, "15modelNDVI_month.rds")
+```
+
+**LASTDia_month**
+
+```{r eval=TRUE}
+formulaLASTDia_month <- (fallecidos~SMR.anterior+LASTDia_month+
+                             f(cod_canton, model="bym",graph=g) + 
+                             f(strdia, model="rw2") +
+                             f(unstrdia, model="iid"))
+resLASTDia_month<- inla(formulaLASTDia_month, family = "nbinomial", data = mapa_cantonestfg, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE),control.inla=list(strategy="laplace"))
+summary(resLASTDia_month)
+plot(resLASTDia_month$cpo$cpo)
+sum(-log(resLASTDia_month$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, resLASTDia_month$summary.fitted.values$mean)
+#saveRDS(resLASTDia_month, "16modelLASTDia_month.rds")
+```
+
+**LSTNoche_month**
+
+```{r eval=TRUE}
+
+formulaLSTNoche_month <- (fallecidos~SMR.anterior+LSTNoche_month+
+                             f(cod_canton, model="bym",graph=g) + 
+                             f(strdia, model="rw2") +
+                             f(unstrdia, model="iid"))
+resLSTNoche_month<- inla(formulaLSTNoche_month, family = "nbinomial", data = mapa_cantonestfg, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE),control.inla=list(strategy="laplace"))
+summary(resLSTNoche_month)
+plot(resLSTNoche_month$cpo$cpo)
+sum(-log(resLSTNoche_month$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, resLSTNoche_month$summary.fitted.values$mean)
+#saveRDS(resLSTNoche_month, "17modelresLSTNoche_month.rds")
+```
+
+**positivos.mes.anterior**
+
+```{r eval=TRUE}
+formulaporcentajeadltmayor <- (fallecidos~SMR.anterior+positivos.mes.anterior+
+                             f(cod_canton, model="bym",graph=g) + 
+                             f(strdia, model="rw2") +
+                             f(unstrdia, model="iid"))
+resporcentajeadltmayor <- inla(formulaporcentajeadltmayor, family = "nbinomial", data = mapa_cantonestfg, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE),control.inla=list(strategy="laplace"))
+summary(resporcentajeadltmayor)
+plot(resporcentajeadltmayor$cpo$cpo)
+sum(-log(resporcentajeadltmayor$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, resporcentajeadltmayor$summary.fitted.values$mean)
+#saveRDS(resporcentajeadltmayor, "18modelporcentajeadltmayor.rds")
+```
+
+**positivos.2mes.anterior**
+
+```{r eval=TRUE}
+formulaporcentajeadltmayor <- (fallecidos~SMR.anterior+positivos.2mes.anterior+
+                             f(cod_canton, model="bym",graph=g) + 
+                             f(strdia, model="rw2") +
+                             f(unstrdia, model="iid"))
+resporcentajeadltmayor <- inla(formulaporcentajeadltmayor, family = "nbinomial", data = mapa_cantonestfg, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE),control.inla=list(strategy="laplace"))
+summary(resporcentajeadltmayor)
+plot(resporcentajeadltmayor$cpo$cpo)
+sum(-log(resporcentajeadltmayor$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, resporcentajeadltmayor$summary.fitted.values$mean)
+#saveRDS(resporcentajeadltmayor, "19modelporcentajeadltmayor.rds")
+```
+
+**Combine covariables**
+
+**positivos.mes.anterior+positivos.2mes.anterior**
+
+```{r eval=TRUE}
+formulameses2 <- (fallecidos~SMR.anterior+positivos.mes.anterior+positivos.2mes.anterior+
+                             f(cod_canton, model="bym",graph=g) + 
+                             f(strdia, model="rw2") +
+                             f(unstrdia, model="iid"))
+resmeses2 <- inla(formulameses2, family = "nbinomial", data = mapa_cantonestfg, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE),control.inla=list(strategy="laplace"))
+summary(resmeses2)
+plot(resmeses2$cpo$cpo)
+sum(-log(resmeses2$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, resmeses2$summary.fitted.values$mean)
+#saveRDS(resmeses2, "20modelresmeses2.rds")
+```
+
+**positivos.mes.anterior+positivos.2mes.anterior+porcentajeurbano+IDH2018**
+
+```{r eval=TRUE}
+formulameses4 <- (fallecidos~SMR.anterior+positivos.mes.anterior+positivos.2mes.anterior+porcentajeurbano+IDH2018+
+                             f(cod_canton, model="bym",graph=g) + 
+                             f(strdia, model="rw2") +
+                             f(unstrdia, model="iid"))
+resmeses4 <- inla(formulameses4, family = "nbinomial", data = mapa_cantonestfg, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE),control.inla=list(strategy="laplace"))
+summary(resmeses4)
+plot(resmeses4$cpo$cpo)
+sum(-log(resmeses4$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, resmeses4$summary.fitted.values$mean)
+#saveRDS(resmeses4, "21modelresmeses4.rds")
+```
+
+**positivos.mes.anterior+positivos.2mes.anterior+porcentajeurbano+IDH2018+fallecidos.anterior**
+
+```{r eval=TRUE}
+formulameses4 <- (fallecidos~positivos.mes.anterior+positivos.2mes.anterior+porcentajeurbano+IDH2018+fallecidos.anterior+
+                             f(cod_canton, model="bym",graph=g) + 
+                             f(strdia, model="rw2") +
+                             f(unstrdia, model="iid"))
+resmeses4 <- inla(formulameses4, family = "nbinomial", data = mapa_cantonestfg, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE),control.inla=list(strategy="laplace"))
+summary(resmeses4)
+plot(resmeses4$cpo$cpo)
+sum(-log(resmeses4$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, resmeses4$summary.fitted.values$mean)
+#saveRDS(resmeses4, "21modelresmeses4.rds")
+```
+
+**porcentajeurbano+IDH2018**
+
+```{r eval=TRUE}
+formulameses4 <- (fallecidos~SMR.anterior+porcentajeurbano+IDH2018+
+                             f(cod_canton, model="bym",graph=g) + 
+                             f(strdia, model="rw2") +
+                             f(unstrdia, model="iid"))
+resmeses4 <- inla(formulameses4, family = "nbinomial", data = mapa_cantonestfg, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE),control.inla=list(strategy="laplace"))
+summary(resmeses4)
+plot(resmeses4$cpo$cpo)
+sum(-log(resmeses4$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, resmeses4$summary.fitted.values$mean)
+#saveRDS(resmeses4, "22modelresmeses4final.rds")
+```
+
+**generar variable de las dos sumar(positivos.mes.anterior+#positivos.2mes.anterior)+porcentajeurbano+IDH2018+usar promedio mes anterior**
+
+```{r eval=TRUE}
+mapa_cantonestfg$sumpositivos<-mapa_cantonestfg$positivos.mes.anterior+mapa_cantonestfg$positivos.2mes.anterior
+formulameses4 <- (fallecidos~SMR.anterior+sumpositivos+porcentajeurbano+IDH2018+
+                             f(cod_canton, model="bym",graph=g) + 
+                             f(strdia, model="rw2") +
+                             f(unstrdia, model="iid"))
+resmeses4 <- inla(formulameses4, family = "nbinomial", data = mapa_cantonestfg, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE),control.inla=list(strategy="laplace"))
+summary(resmeses4)
+plot(resmeses4$cpo$cpo)
+sum(-log(resmeses4$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, resmeses4$summary.fitted.values$mean)
+#saveRDS(resmeses4, "23modelresmesessumpositivos.rds")
+```
+
+### Interaction type
+
+```{r echo=FALSE, out.width='100%', fig.show='hold'}
+knitr::include_graphics("Capture3.PNG")
+```
+
+**M1**
+
+```{r, error=TRUE}
+formula1 <- (fallecidos~1)
+res1 <- inla(formula1, family = "nbinomial", data = mapa_cantonestfg, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE),control.inla=list(strategy="laplace"))
+summary(res1)
+plot(res1$cpo$cpo)
+sum(-log(res1$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, res1$summary.fitted.values$mean)
+#saveRDS(res1, "24modelres1.rds")
+```
+
+**M2**
+
+```{r, error=TRUE}
+formula2 <- (fallecidos~SMR.anterior)
+res2 <- inla(formula2, family = "nbinomial", data = mapa_cantonestfg, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE),control.inla=list(strategy="laplace"))
+summary(res2)
+plot(res2$cpo$cpo)
+sum(-log(res2$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, res2$summary.fitted.values$mean)
+#saveRDS(res2, "25modelres2.rds")
+```
+
+**M3**
+
+```{r, error=TRUE}
+formula3 <- (fallecidos~SMR.anterior+porcentajeurbano)
+res3 <- inla(formula3, family = "nbinomial", data = mapa_cantonestfg, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE),control.inla=list(strategy="laplace"))
+summary(res3)
+plot(res2$cpo$cpo)
+sum(-log(res3$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, res3$summary.fitted.values$mean)
+#saveRDS(res3, "26modelres3.rds")
+```
+
+**M4**
+
+```{r, error=TRUE}
+formula4 <- (fallecidos~SMR.anterior+porcentajeurbano+
+                             f(numcanton, model="bym",graph=g) + 
+                             f(strdia, model="rw2") +
+                             f(unstrdia, model="iid"))
+res4 <- inla(formula4, family = "nbinomial", data = mapa_cantonestfg, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE),control.inla=list(strategy="laplace"))
+summary(res4)
+plot(res4$cpo$cpo)
+sum(-log(res4$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, res4$summary.fitted.values$mean)
+#saveRDS(res4, "27modelres4.rds")
+```
+
+**M5 - type I**
+
+```{r, error=TRUE}
+formula5 <- (fallecidos~SMR.anterior+porcentajeurbano+
+                             f(numcanton, model="bym",graph=g) + 
+                             f(strdia, model="rw2") +
+                             f(unstrdia, model="iid")+
+                              f(diacanton, model="iid"))
+res5 <- inla(formula5, family = "nbinomial", data = mapa_cantonestfg, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE),control.inla=list(strategy="laplace"))
+summary(res5)
+plot(res5$cpo$cpo)
+sum(-log(res5$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, res5$summary.fitted.values$mean)
+#saveRDS(res5, "27modelres5.rds")
+```
+
+**M6 - type II**
+
+```{r, error = TRUE}
+
+numcanton2 <- mapa_cantonestfg2$numcanton
+strdia2 <- mapa_cantonestfg2$strdia
+formula62 <- (fallecidos~SMR.anterior+porcentajeurbano+
+                             f(numcanton, model="bym",graph=g) + 
+                             f(strdia, model="rw2") +
+                             f(strdiaint, model="iid")+
+                              f(numcanton2, model="iid", group=strdia2,
+                               control.group=list(model="rw2")))
+res62 <- inla(formula62, family = "nbinomial", data = mapa_cantonestfg, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE),control.inla=list(strategy="laplace"))
+summary(res62)
+plot(res62$cpo$cpo)
+sum(-log(res62$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, res62$summary.fitted.values$mean)
+#saveRDS(res62, "28modelres6.rds")
+```
+
+**M7 - type III**
+
+```{r eval=FALSE}
+formula7 <- (fallecidos~SMR.anterior+porcentajeurbano+
+                             f(numcanton, model="bym",graph=g) + 
+                             f(strdia, model="rw2") +
+                             f(strdiaint, model="iid")+
+                              f(unstrdia, model="iid", group=numcanton2,
+                               control.group=list(model="besag", graph=g)))
+res7 <- inla(formula7, family = "nbinomial", data = mapa_cantonestfg, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE), verbose=TRUE)
+summary(res7)
+plot(res7$cpo$cpo)
+sum(-log(res7$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, res7$summary.fitted.values$mean)
+#saveRDS(res7, "29modelres7.rds")
+```
+
+**M8 - type IV**
+
+```{r eval=FALSE}
+formula8 <- (fallecidos~SMR.anterior+porcentajeurbano+
+                             f(numcanton, model="bym",graph=g) + 
+                             f(strdia, model="rw2") +
+                             f(strdiaint, model="iid")+
+                              f(numcanton2, model="besag", graph=g, group=strdiaint,
+                               control.group=list(model="rw2")))
+res8 <- inla(formula8, family = "nbinomial", data = mapa_cantonestfg, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE))
+summary(res8)
+plot(res8$cpo$cpo)
+sum(-log(res8$cpo$cpo))
+sum(-log(res8$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, res8$summary.fitted.values$mean)
+#saveRDS(res8, "30modelres8.rds")
+```
+
+**M9 - type I**
+
+```{r, error = TRUE}
+formula9 <- (fallecidos~SMR.anterior+porcentajeurbano+
+                             f(numcanton, model="bym",graph=g) + 
+                             f(strmes, model="rw2") +
+                             f(unstrmes, model="iid")+
+                              f(numcanton2, model="iid"))
+res9 <- inla(formula9, family = "nbinomial", data = mapa_cantonestfg, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE))
+summary(res9)
+plot(res9$cpo$cpo)
+sum(-log(res9$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, res9$summary.fitted.values$mean)
+#saveRDS(res9, "31modelres9.rds")
+```
+
+**M10 - type II**
+
+```{r, error = TRUE}
+formula10 <- (fallecidos~SMR.anterior+porcentajeurbano+
+                             f(numcanton, model="bym",graph=g) + 
+                             f(strmes, model="rw2") +
+                             f(unstrmes, model="iid")+
+                            f(numcanton2, model="iid", group=strmesint,
+                               control.group=list(model="rw2")))
+res10 <- inla(formula10, family = "nbinomial", data = mapa_cantonestfg, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE))
+summary(res10)
+plot(res10$cpo$cpo)
+sum(-log(res10$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, res10$summary.fitted.values$mean)
+#saveRDS(res10, "32modelres10.rds")
+```
+
+**M11 - type III**
+
+```{r eval=FALSE, error=TRUE}
+formula11 <- (fallecidos~SMR.anterior+porcentajeurbano+
+                             f(numcanton, model="bym",graph=g) + 
+                             f(strmes, model="rw2") +
+                             f(unstrmes, model="iid")+
+                            f(unstrmesint, model="iid", group=numcanton2,
+                               control.group=list(model="besag", graph=g)))
+res11 <- inla(formula11, family = "nbinomial", data = mapa_cantonestfg, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE))
+summary(res11)
+plot(res11$cpo$cpo)
+sum(-log(res11$cpo$cpo))
+#saveRDS(res11, "33modelres11.rds")
+```
+
+**M12 - type IV**
+
+```{r, error = TRUE}
+formula12 <- (fallecidos~SMR.anterior+positivos.mes.anterior+positivos.2mes.anterior+porcentajeurbano+
+                             f(numcanton, model="bym",graph=g) + 
+                             f(strmes, model="rw2") +
+                             f(unstrmes, model="iid")+
+                            f(numcanton2, model="besag", graph=g, group = strmesint,
+                               control.group=list(model="rw2")))
+res12 <- inla(formula12, family = "nbinomial", data = mapa_cantonestfg, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE))
+summary(res12)
+plot(res12$cpo$cpo)
+sum(-log(res12$cpo$cpo))
+RMSE(mapa_cantonestfg2$fallecidos, res12$summary.fitted.values$mean)
+#saveRDS(res12, "34modelres12.rds")
+```
+
+### Final Model - Properties
+
+```{r, error=TRUE}
+library(ggplot2)
+marginal <- inla.smarginal(res62$marginals.fixed$SMR.anterior)
+marginal <- data.frame(marginal)
+ggplot(marginal, aes(x = x, y = y)) + geom_line() +
+labs(x = expression(beta[1]), y = "Density") +
+geom_vline(xintercept = 0, col = "black") + theme_bw()
+```
+
+```{r, error=TRUE}
+library(ggplot2)
+marginal <- inla.smarginal(res62$marginals.fixed$`(Intercept)`)
+marginal <- data.frame(marginal)
+ggplot(marginal, aes(x = x, y = y)) + geom_line() +
+labs(x = expression(beta[1]), y = "Density") +
+geom_vline(xintercept = 0, col = "black") + theme_bw()
+```
+
+```{r, error=TRUE}
+library(ggplot2)
+marginal <- inla.smarginal(res62$marginals.fixed$porcentajeurbano)
+marginal <- data.frame(marginal)
+ggplot(marginal, aes(x = x, y = y)) + geom_line() +
+labs(x = expression(beta[1]), y = "Density") +
+geom_vline(xintercept = 0, col = "black") + theme_bw()
+```
+
+```{r, error=TRUE}
+mapa_cantonestfg2$respa <- res62$summary.random$numcanton[mapa_cantonestfg2$numcanton, "mean"]
+mapa_cantonestfg2$reiid <- res62$summary.random$numcanton2[, "mean"]
+tm_shape(mapa_cantonestfg2) +
+tm_polygons(col = c("respa", "reiid"), style = "cont", border.col = "transparent") +
+tm_shape(mapa_cantonestfg) + tm_borders() +
+tm_facets(ncol = 2) + tm_legend(legend.position = c("left", "bottom"))
+```
+
+```{r, error=TRUE}
+mapa_cantonestfg2$RR <- res62$summary.fitted.values[, "mean"]
+mapa_cantonestfg2$LL <- res62$summary.fitted.values[, "0.025quant"]
+mapa_cantonestfg2$UL <- res62$summary.fitted.values[, "0.975quant"]
+
+tm_shape(mapa_cantonestfg2) +
+tm_polygons(col = c("RR", "LL", "UL"), style = 'fixed', border.col = "transparent",
+breaks = c(0, 1, 5, 10, 50, 100)) +
+tm_shape(mapa_cantonestfg2) + tm_borders() +
+tm_facets(ncol = 3) + tm_legend(legend.position = c("left", "bottom"))
+```
+```{r, error=TRUE}
+summary(res62)
+exp(res62$summary.fixed)
+-mean(log(res62$cpo$cpo))
+#brier.score(mapa_cantonestfg2[["fallecidos"]], res62[["summary.fitted.values"]])
+goftest::cvm.test(res62$cpo$pit, null="punif")
+```
+
+```{r, error=TRUE}
+mapa_cantonestfg2$RR <- res62$summary.fitted.values[, "mean"]
+mapa_cantonestfg2$LL <- res62$summary.fitted.values[, "0.025quant"]
+mapa_cantonestfg2$UL <- res62$summary.fitted.values[, "0.975quant"]
+newdata <- mapa_cantonestfg2[order(mapa_cantonestfg2$strdia, mapa_cantonestfg2$diacanton),]
+
+
+newdataRRabr <- newdata[1:82,]
+newdataRRmay <- newdata[83:164,]
+newdataRRjun <- newdata[165:246,]
+newdataRRjul <- newdata[247:328,]
+newdataRRago <- newdata[329:410,]
+newdataRRset <- newdata[411:492,]
+newdataRRoct <- newdata[493:574,]
+newdataRRnov <- newdata[575:656,]
+newdataRRdec <- newdata[657:738,]
+newdataRRene <- newdata[739:820,]
+newdataRRfeb <- newdata[821:902,]
+newdataRRmar <- newdata[903:984,]
+
+par(mfrow=c(1,1))
+
+tm_shape(newdataRRabr) +
+tm_polygons(col = c("RR", "LL", "UL"), style = 'fixed', border.col = "transparent",
+breaks = c(0, 1, 5, 10, 50, 100)) +
+tm_shape(newdataRRmar) + tm_borders() +
+tm_facets(ncol = 3) + tm_legend(legend.position = c("left", "bottom"), main.title= 'Abr 2020',  main.title.position = c('left', 'top'))
+
+
+tm_shape(newdataRRmay) +
+tm_polygons(col = c("RR", "LL", "UL"), style = 'fixed', border.col = "transparent",
+breaks = c(0, 1, 5, 10, 50, 100)) +
+tm_shape(newdataRRmay) + tm_borders() +
+tm_facets(ncol = 3) + tm_legend(legend.position = c("left", "bottom"), main.title= 'May 2020',  main.title.position = c('left', 'top'))
+
+tm_shape(newdataRRjun) +
+tm_polygons(col = c("RR", "LL", "UL"), style = 'fixed', border.col = "transparent",
+breaks = c(0, 1, 5, 10, 50, 100)) +
+tm_shape(newdataRRjun) + tm_borders() +
+tm_facets(ncol = 3) + tm_legend(legend.position = c("left", "bottom"), main.title= 'Jun 2020',  main.title.position = c('left', 'top'))
+
+tm_shape(newdataRRjul) +
+tm_polygons(col = c("RR", "LL", "UL"), style = 'fixed', border.col = "transparent",
+breaks = c(0, 1, 5, 10, 50, 100)) +
+tm_shape(newdataRRjul) + tm_borders() +
+tm_facets(ncol = 3) + tm_legend(legend.position = c("left", "bottom"), main.title= 'Jul 2020',  main.title.position = c('left', 'top'))
+
+tm_shape(newdataRRago) +
+tm_polygons(col = c("RR", "LL", "UL"), style = 'fixed', border.col = "transparent",
+breaks = c(0, 1, 5, 10, 50, 100)) +
+tm_shape(newdataRRago) + tm_borders() +
+tm_facets(ncol = 3) + tm_legend(legend.position = c("left", "bottom"), main.title= 'Ago 2020',  main.title.position = c('left', 'top'))
+
+tm_shape(newdataRRset) +
+tm_polygons(col = c("RR", "LL", "UL"), style = 'fixed', border.col = "transparent",
+breaks = c(0, 1, 5, 10, 50, 100)) +
+tm_shape(newdataRRset) + tm_borders() +
+tm_facets(ncol = 3) + tm_legend(legend.position = c("left", "bottom"), main.title= 'Set 2020',  main.title.position = c('left', 'top'))
+
+tm_shape(newdataRRoct) +
+tm_polygons(col = c("RR", "LL", "UL"), style = 'fixed', border.col = "transparent",
+breaks = c(0, 1, 5, 10, 50, 100)) +
+tm_shape(newdataRRoct) + tm_borders() +
+tm_facets(ncol = 3) + tm_legend(legend.position = c("left", "bottom"), main.title= 'Oct 2020',  main.title.position = c('left', 'top'))
+
+tm_shape(newdataRRnov) +
+tm_polygons(col = c("RR", "LL", "UL"), style = 'fixed', border.col = "transparent",
+breaks = c(0, 1, 5, 10, 50, 100)) +
+tm_shape(newdataRRnov) + tm_borders() +
+tm_facets(ncol = 3) + tm_legend(legend.position = c("left", "bottom"), main.title= 'Nov 2020',  main.title.position = c('left', 'top'))
+
+tm_shape(newdataRRdec) +
+tm_polygons(col = c("RR", "LL", "UL"), style = 'fixed', border.col = "transparent",
+breaks = c(0, 1, 5, 10, 50, 100)) +
+tm_shape(newdataRRdec) + tm_borders() +
+tm_facets(ncol = 3) + tm_legend(legend.position = c("left", "bottom"), main.title= 'Dec 2020',  main.title.position = c('left', 'top'))
+
+tm_shape(newdataRRene) +
+tm_polygons(col = c("RR", "LL", "UL"), style = 'fixed', border.col = "transparent",
+breaks = c(0, 1, 5, 10, 50, 100)) +
+tm_shape(newdataRRene) + tm_borders() +
+tm_facets(ncol = 3) + tm_legend(legend.position = c("left", "bottom"), main.title= 'Ene 2021',  main.title.position = c('left', 'top'))
+
+tm_shape(newdataRRfeb) +
+tm_polygons(col = c("RR", "LL", "UL"), style = 'fixed', border.col = "transparent",
+breaks = c(0, 1, 5, 10, 50, 100)) +
+tm_shape(newdataRRfeb) + tm_borders() +
+tm_facets(ncol = 3) + tm_legend(legend.position = c("left", "bottom"), main.title= 'Feb 2021',  main.title.position = c('left', 'top'))
+
+tm_shape(newdataRRmar) +
+tm_polygons(col = c("RR", "LL", "UL"), style = 'fixed', border.col = "transparent",
+breaks = c(0, 1, 5, 10, 50, 100)) +
+tm_shape(newdataRRmar) + tm_borders() +
+tm_facets(ncol = 3) + tm_legend(legend.position = c("left", "bottom"), main.title= 'Mar 2021',  main.title.position = c('left', 'top'))
+```
+
+### Prediction - April 2021
+
+```{r, error=T}
+new.speeds <- read.csv("datostfgpred.csv", header = TRUE) 
+new.speeds <- left_join(x = mapa_cantones,
+                           y = new.speeds,
+                           by = c("cant_nom2"="canton"))
+head(new.speeds)
+```
+
+```{r, error=T}
+numcanton2.pred <- new.speeds$numcanton.pred
+strdia2.pred <- new.speeds$strdia.pred
+formula62.pred <- (fallecidos.pred~SMR.anterior.pred+porcentajeurbano+
+                             f(numcanton.pred, model="bym",graph=g) + 
+                             f(strdia.pred, model="rw2") +
+                             f(strdiaint.pred, model="iid")+
+                              f(numcanton2.pred, model="iid", group=strdia2.pred,
+                               control.group=list(model="rw2")))
+res62.pred <- inla(formula62.pred, family = "nbinomial", data = new.speeds, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE, link = 1),control.inla=list(strategy="laplace"))
+summary(res62.pred)
+plot(res62.pred$cpo$cpo)
+sum(-log(na.omit(res62.pred$cpo$cpo)))
+RMSE(new.speeds$fallecidos.pred, res62.pred$summary.fitted.values$mean)
+sqrt( mean( (new.speeds$fallecidos.pred - res62.pred$summary.fitted.values$mean)^2 , na.rm = TRUE ) )
+#saveRDS(res62.pred, "35modelprediccionabril.rds")
+```
+
+```{r, error=TRUE}
+new.speeds$Abril <- res62.pred$summary.fitted.values[, "mean"]
+new.speeds$LL.pred <- res62.pred$summary.fitted.values[, "0.025quant"]
+new.speeds$UL.pred <- res62.pred$summary.fitted.values[, "0.975quant"]
+newdata.pred <- new.speeds[order(new.speeds$strdia.pred, new.speeds$numcanton.pred),]
+
+newdataRRabr.pred <- newdata.pred[985:1066,]
+#newdataRRmay.pred <- newdata.pred[1067:1148,]
+
+tm_shape(newdataRRabr.pred) +
+tm_polygons(col = c("Abril", "LL.pred", "UL.pred"), style = 'fixed', border.col = "transparent",
+breaks = c(0, 1, 5, 10, 50, 100)) +
+tm_shape(newdataRRabr.pred) + tm_borders() +
+tm_facets(ncol = 3) + tm_legend(legend.position = c("left", "bottom"), main.title= 'Abr 2021',  main.title.position = c('left', 'top'))
+```
+```{r, error=T}
+predict1 <- res62.pred$summary.fitted.values %>% dplyr::select(mean,`0.025quant`,`0.975quant`, sd)
+summary(predict1)
+```
+```{r, error=T}
+predict.rrisk <- res62.pred$summary.linear.predictor %>% dplyr::select(mean,`0.025quant`,`0.975quant`, sd)
+summary(predict.rrisk)
+```
+
+### Prediction - May 2021
+
+```{r, error=T}
+new.speeds <- read.csv("datostfgpred2.csv", header = TRUE) 
+new.speeds <- left_join(x = mapa_cantones,
+                           y = new.speeds,
+                           by = c("cant_nom2"="canton"))
+head(new.speeds)
+```
+
+```{r, error=T}
+numcanton2.pred <- new.speeds$numcanton.pred
+strdia2.pred <- new.speeds$strdia.pred
+formula62.pred <- (fallecidos.pred~SMR.anterior.pred+porcentajeurbano+
+                             f(numcanton.pred, model="bym",graph=g) +
+                             f(strdia.pred, model="rw2") +
+                             f(strdiaint.pred, model="iid")+
+                              f(numcanton2.pred, model="iid", group=strdia2.pred,
+                               control.group=list(model="rw2")))
+res62.pred <- inla(formula62.pred, family = "nbinomial", data = new.speeds, E = Expected, control.compute = list(dic = T, waic=T, cpo=T, return.marginals.predictor=TRUE), control.predictor = list(compute = TRUE, link = 1),control.inla=list(strategy="laplace"))
+summary(res62.pred)
+plot(res62.pred$cpo$cpo)
+sum(-log(na.omit(res62.pred$cpo$cpo)))
+RMSE(new.speeds$fallecidos.pred, res62.pred$summary.fitted.values$mean)
+sqrt( mean( (new.speeds$fallecidos.pred - res62.pred$summary.fitted.values$mean)^2 , na.rm = TRUE ) )
+saveRDS(res62.pred, "36modelprediccionmayo.rds")
+```
+
+```{r, error=T}
+new.speeds$Mayo <- res62.pred$summary.fitted.values[, "mean"]
+new.speeds$RR.pred <- res62.pred$summary.fitted.values[, "mean"]
+new.speeds$LL.pred <- res62.pred$summary.fitted.values[, "0.025quant"]
+new.speeds$UL.pred <- res62.pred$summary.fitted.values[, "0.975quant"]
+newdata.pred <- new.speeds[order(new.speeds$strdia.pred, new.speeds$numcanton.pred),]
+newdataRRmay.pred <- newdata.pred[1067:1148,]
+
+tm_shape(newdataRRmay.pred) +
+tm_polygons(col = c("Mayo", "LL.pred", "UL.pred"), style = 'fixed', border.col = "transparent",
+breaks = c(0, 1, 5, 10, 50, 100)) +
+tm_shape(newdataRRmay.pred) + tm_borders() +
+tm_facets(ncol = 3) + tm_legend(legend.position = c("left", "bottom"), main.title= 'Mayo 2021',  main.title.position = c('left', 'top'))
+```
+
+```{r, error=T}
+predict1 <- res62.pred$summary.fitted.values %>% dplyr::select(mean,`0.025quant`,`0.975quant`, sd)
+summary(predict1)
+```
+
+```{r, error=T}
+predict.rrisk <- res62.pred$summary.linear.predictor %>% dplyr::select(mean,`0.025quant`,`0.975quant`, sd)
+summary(predict.rrisk)
+```
+
+### Graphical Prediction
+
+```{r, error=T}
+newdata.pred27 <- new.speeds[order(new.speeds$numcanton.pred, new.speeds$strdia.pred),]
+newdata.pred21 <- newdata.pred27[1:14,]
+```
+
+```{r, error=T}
+tab.ar1 <- data.frame(x = newdata.pred21$strdia.pred,
+  y = newdata.pred21$RR.pred,
+  ll95 = newdata.pred21$LL.pred,
+  ul95 = newdata.pred21$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred21, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Abangares, Guanacaste")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred22 <- newdata.pred27[15:28,]
+tab.ar1 <- data.frame(x = newdata.pred22$strdia.pred,
+  y = newdata.pred22$RR.pred,
+  ll95 = newdata.pred22$LL.pred,
+  ul95 = newdata.pred22$UL.pred)
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+ggplot(newdata.pred22, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Acosta, San Jose")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred23 <- newdata.pred27[29:42,]
+tab.ar1 <- data.frame(x = newdata.pred23$strdia.pred,
+  y = newdata.pred23$RR.pred,
+  ll95 = newdata.pred23$LL.pred,
+  ul95 = newdata.pred23$UL.pred)
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+ggplot(newdata.pred23, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Alajuela, Alajuela")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred24 <- newdata.pred27[43:56,]
+tab.ar1 <- data.frame(x = newdata.pred24$strdia.pred,
+  y = newdata.pred24$RR.pred,
+  ll95 = newdata.pred24$LL.pred,
+  ul95 = newdata.pred24$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred24, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Alajuelita, San Jose")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[57:70,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Alvarado, Cartago")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[71:84,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Aserri, San Jose")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[85:98,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Atenas, Alajuela")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[99:112,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Bagaces, Guanacaste")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[113:126,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Barva, Heredia")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[127:140,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Belen, Heredia")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[141:154,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Buenos Aires, Puntarenas")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[155:168,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Canas, Guanacaste")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[169:182,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Carrillo, Guanacaste")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[183:196,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Cartago, Cartago")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[197:210,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Corredores, Puntarenas")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[211:224,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Coto Brus, Puntarenas")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[225:238,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Curridabat, San Jose")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[239:252,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Desamparados, San Jose")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[253:266,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Dota, San Jose")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[267:280,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de El Guarco, Cartago")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[281:294,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Escazu, San Jose")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[295:308,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Esparza, Puntarenas")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[309:322,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Flores, Heredia")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[323:336,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Garabito, Puntarenas")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[337:350,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Goicoechea, San Jose")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[351:364,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Golfito, Puntarenas")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[365:378,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Grecia, Alajuela")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[379:392,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Guacimo, Limon")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[393:406,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Guatuso, Alajuela")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[407:420,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Heredia, Heredia")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[421:434,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Hojancha, Guanacaste")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[435:448,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  geom_point(shape = 20, alpha = 0.3) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Jimenez, Cartago")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[449:462,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de La Cruz, Guanacaste")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[463:476,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de La Union, Cartago")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[477:490,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Leon Cortes, San Jose")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[491:504,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Liberia, Guanacaste")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[505:518,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Limon, Limon")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[519:532,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Los Chiles, Alajuela")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[533:546,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Matina, Limon")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[547:560,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Montes de Oca, San Jose")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[561:574,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Montes de Oro, Puntarenas")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[575:588,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Mora, San Jose")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[589:602,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Moravia, San Jose")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[603:616,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Nandayure, Guanacaste")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[617:630,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Naranjo, Alajuela")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[631:644,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Nicoya, Guanacaste")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[645:658,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Oreamuno, Cartago")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[659:672,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Orotina, Alajuela")+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[673:686,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Osa, Puntarenas")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[687:700,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Palmares, Alajuela")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[701:714,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Paraiso, Cartago")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[715:728,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Parrita, Puntarenas")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[729:742,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Perez Zeledon, San Jose")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[743:756,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Poas, Alajuela")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[757:770,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Pococi, Limon")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[771:784,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Puntarenas, Puntarenas")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[785:798,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Puriscal, San Jose")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[799:812,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Quepos, Puntarenas")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[813:826,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Rio Cuarto, Alajuela")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[827:840,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de San Carlos, Alajuela")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[841:854,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de San Isidro, Heredia")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[855:868,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de San Jose, San Jose")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[869:882,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de San Mateo, Alajuela")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[883:896,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de San Pablo, Heredia")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[897:910,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de San Rafael, Heredia")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[911:924,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de San Ramon, Alajuela")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[925:938,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Santa Ana, San Jose")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[939:952,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Santa Barbara, Heredia")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[953:966,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Santa Cruz, Guanacaste")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[967:980,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Santo Domingo, Heredia")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[981:994,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Sarapiqui, Heredia")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[995:1008,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Valverde Vega, Alajuela")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[1009:1022,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Siquirres, Limon")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[1023:1036,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Talamanca, Limon")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[1037:1050,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Tarrazu, San Jose")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[1051:1064,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Tibas, San Jose")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[1065:1078,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Tilaran, Guanacaste")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[1079:1092,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Turrialba, Cartago")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[1093:1106,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Turrubares, San Jose")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[1107:1120,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Upala, San Jose")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[1121:1134,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Vasquez de Coronado, San Jose")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
+```{r, error=T}
+newdata.pred25 <- newdata.pred27[1135:1148,]
+tab.ar1 <- data.frame(x = newdata.pred25$strdia.pred,
+  y = newdata.pred25$RR.pred,
+  ll95 = newdata.pred25$LL.pred,
+  ul95 = newdata.pred25$UL.pred)
+
+tab.labels <- data.frame(
+  x = c(1, 14),
+  y = c(10, 10),
+  text = c("observed", "predicted")
+)
+
+ggplot(newdata.pred25, aes(x = strdia.pred, y = fallecidos.pred)) +
+  xlab("Mes") +
+  ylab("Prediccion fallecidos canton de Zarcero, Alajuela")+
+
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.75, data = tab.ar1) +
+  geom_ribbon(aes(x = x, y = y, ymin = ll95, ymax = ul95), fill="chocolate1", alpha = 0.5, data = tab.ar1[-(1:nrow(newdata.pred21)), ]) +
+
+    geom_line(aes(x = x, y = y), linetype = 1, col = "blue", data = tab.ar1, size=1) +
+      geom_point(shape = 20, alpha = 2, size=3) +
+
+  geom_vline(xintercept = 12, linetype = "dashed", colour = "red") +
+  geom_text(data = tab.labels, aes(x = x, y = y, label = text))
+```
+
